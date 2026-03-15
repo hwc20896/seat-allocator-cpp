@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>640</width>
+    <height>480</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>MainWindow</string>
+  </property>
+  <widget class="QWidget" name="centralwidget"/>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>640</width>
+     <height>33</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="importActions">
+    <property name="title">
+     <string>導入</string>
+    </property>
+    <addaction name="actionImportFromCSV"/>
+    <addaction name="actionImportFromExcel"/>
+   </widget>
+   <widget class="QMenu" name="exportActions">
+    <property name="title">
+     <string>導出</string>
+    </property>
+    <addaction name="actionExportToCSV"/>
+    <addaction name="actionExportToExcel"/>
+   </widget>
+   <addaction name="importActions"/>
+   <addaction name="exportActions"/>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+  <action name="actionImportFromCSV">
+   <property name="text">
+    <string>從 .csv 導入</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionImportFromExcel">
+   <property name="text">
+    <string>從 .xlsx 導入</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionExportToCSV">
+   <property name="text">
+    <string>導出為 .csv</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionExportToExcel">
+   <property name="text">
+    <string>導出為 .xlsx</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
