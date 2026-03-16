@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia)
 find_package(spdlog CONFIG REQUIRED)
+find_package(OpenXLSX CONFIG REQUIRED)
 
 qt_standard_project_setup()
 
@@ -41,4 +42,5 @@ target_link_libraries(seat_allocator_v3 PRIVATE
     Qt6::Multimedia
     stdc++exp
     spdlog::spdlog
+    OpenXLSX::OpenXLSX
 )

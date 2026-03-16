@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <spdlog/spdlog.h>
 #include <filesystem>
+#include <OpenXLSX.hpp>
 
 Grid readCSV(const std::string& filePath) {
     Grid grid;
@@ -73,6 +74,47 @@ void writeCSV(const std::string& filePath, const Grid& grid) {
                 file << ',';
         }
     }
+}
+
+Grid readXLSX(const std::string& filePath) {
+    Grid result;
+
+    OpenXLSX::XLDocument doc;
+    doc.open(filePath);
+    const auto wks = doc.workbook().worksheet(1);
+
+    const auto [rows, cols] = std::make_pair(wks.rowCount(), wks.columnCount());
+
+    for (auto r = 1; r <= rows; ++r) {
+        Row rowVec;
+        for (auto c = 1; c <= cols; ++c) {
+            auto cell = wks.cell(r, c);
+            if (cell.value().type() == OpenXLSX::XLValueType::Empty) {
+                rowVec.emplace_back("");
+            } else {
+                rowVec.push_back(cell.value().get<std::string>());
+            }
+        }
+        result.push_back(rowVec);
+    }
+
+    doc.close();
+    return result;
+}
+
+void writeXLSX(const std::string& filePath, const Grid& grid) {
+    OpenXLSX::XLDocument doc;
+    doc.create(filePath, true);
+    const auto wks = doc.workbook().worksheet("Sheet1");
+
+    for (size_t i = 0; i < grid.size(); ++i) {
+        for (size_t j = 0; j < grid[i].size(); ++j) {
+            wks.cell(i + 1, j + 1).value() = grid[i][j];
+        }
+    }
+
+    doc.save();
+    doc.close();
 }
 
 std::string getFileBasename(const std::string& filePath) {

@@ -20,4 +20,8 @@ Grid readCSV(const std::string& filePath);
 
 void writeCSV(const std::string& filePath, const Grid& grid);
 
+Grid readXLSX(const std::string& filePath);
+
+void writeXLSX(const std::string& filePath, const Grid& grid);
+
 void shuffleGrid(Grid& grid);

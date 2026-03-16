@@ -39,21 +39,47 @@ void MainWindow::onImportFromCSV() {
 
 void MainWindow::onImportFromXLSX() {
     spdlog::debug("onImportFromXLSX() clicked");
+    const QString fileName = QFileDialog::getOpenFileName(this, "導入座位配置", "", "Excel 檔案 (*.xlsx)");
+    if (fileName.isEmpty()) {
+        spdlog::error("Unable to open the file. It probably means that the file doesn't exist or the user canceled the operation.");
+        return;
+    }
+
+    const auto grid = readXLSX(fileName.toStdString());
+    spdlog::debug(std::format("Got grid:\n{}", grid));
+    spdlog::info("Import from EXCEL done.");
+
+    ui_->statusbar->showMessage(QString("已導入檔案：%1").arg(getFileBasename(fileName.toStdString())));
 }
 
 void MainWindow::onExportToCSV() {
     spdlog::debug("onExportToCSV() clicked");
     const QString fileName = QFileDialog::getSaveFileName(this, "輸出座位配置", "", "CSV 檔案 (*.csv)");
     if (fileName.isEmpty()) {
-        spdlog::error("Unable to open the file. It probably means that the user canceled the operation.");
+        spdlog::error("Unable to get file name. It probably means that the user canceled the operation.");
         return;
     }
 
     //  TODO: get grid from ui
+
+    //  TODO: export grid to csv
+
     spdlog::info("Export to CSV done.");
     ui_->statusbar->showMessage(QString("已導出至檔案：%1").arg(getFileBasename(fileName.toStdString())));
 }
 
 void MainWindow::onExportToXLSX() {
     spdlog::debug("onExportToXLSX() clicked");
+    const QString fileName = QFileDialog::getSaveFileName(this, "輸出座位配置", "", "CSV 檔案 (*.csv)");
+    if (fileName.isEmpty()) {
+        spdlog::error("Unable to get file name. It probably means that the user canceled the operation.");
+        return;
+    }
+
+    //  TODO: get grid from ui
+
+    //  TODO: export grid to xlsx
+
+    spdlog::info("Export to CSV done.");
+    ui_->statusbar->showMessage(QString("已導出至檔案：%1").arg(getFileBasename(fileName.toStdString())));
 }
