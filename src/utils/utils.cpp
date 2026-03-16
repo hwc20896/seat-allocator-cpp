@@ -7,6 +7,7 @@
 #include <random>
 #include <algorithm>
 #include <spdlog/spdlog.h>
+#include <filesystem>
 
 Grid readCSV(const std::string& filePath) {
     Grid grid;
@@ -72,4 +73,8 @@ void writeCSV(const std::string& filePath, const Grid& grid) {
                 file << ',';
         }
     }
+}
+
+std::string getFileBasename(const std::string& filePath) {
+    return std::filesystem::path(filePath).filename().string();
 }

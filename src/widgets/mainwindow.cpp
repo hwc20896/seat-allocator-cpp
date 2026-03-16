@@ -10,6 +10,8 @@
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui_(new Ui::MainWindow){
     ui_->setupUi(this);
 
+    ui_->statusbar->showMessage("未導入");
+
     connect(ui_->actionImportFromCSV, &QAction::triggered, this, &MainWindow::onImportFromCSV);
     connect(ui_->actionImportFromExcel, &QAction::triggered, this, &MainWindow::onImportFromXLSX);
     connect(ui_->actionExportToCSV, &QAction::triggered, this, &MainWindow::onExportToCSV);
@@ -30,7 +32,9 @@ void MainWindow::onImportFromCSV() {
 
     const auto grid = readCSV(fileName.toStdString());
     spdlog::debug(std::format("Got grid:\n{}", grid));
-    spdlog::info("Import from done.");
+    spdlog::info("Import from CSV done.");
+
+    ui_->statusbar->showMessage(QString("已導入檔案：%1").arg(getFileBasename(fileName.toStdString())));
 }
 
 void MainWindow::onImportFromXLSX() {
@@ -47,6 +51,7 @@ void MainWindow::onExportToCSV() {
 
     //  TODO: get grid from ui
     spdlog::info("Export to CSV done.");
+    ui_->statusbar->showMessage(QString("已導出至檔案：%1").arg(getFileBasename(fileName.toStdString())));
 }
 
 void MainWindow::onExportToXLSX() {

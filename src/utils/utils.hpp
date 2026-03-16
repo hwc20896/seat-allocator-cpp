@@ -13,6 +13,9 @@
  *       Empty cells are represented as empty strings "".
  *       Whitespace around values is trimmed.
  */
+
+std::string getFileBasename(const std::string& filePath);
+
 Grid readCSV(const std::string& filePath);
 
 void writeCSV(const std::string& filePath, const Grid& grid);
