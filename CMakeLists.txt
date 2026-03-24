@@ -20,6 +20,8 @@ qt_add_executable(seat_allocator_v3
     src/widgets/mainwindow.cpp
 
     src/ui/mainwindow.ui
+
+    resources.qrc
 )
 
 if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
