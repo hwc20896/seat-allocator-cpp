@@ -8,7 +8,6 @@ int main(int argc, char** argv) {
     spdlog::set_level(spdlog::level::debug);
 
     MainWindow window;
-    window.resize(800, 600);
     window.show();
     return app.exec();
 }
