@@ -120,3 +120,25 @@ void writeXLSX(const std::string& filePath, const Grid& grid) {
 std::string getFileBasename(const std::string& filePath) {
     return std::filesystem::path(filePath).filename().string();
 }
+
+std::string getFileContent(const std::string& filePath) {
+    std::ifstream file(filePath);
+    return {std::istreambuf_iterator(file), std::istreambuf_iterator<char>()};
+}
+
+void RegexColorMapper::addPair(const std::string& pattern, const std::string& color) {
+    cache_[pattern] = std::make_pair(std::regex(pattern), color);
+}
+
+std::string RegexColorMapper::getColor(const std::string& text) const {
+    for (const auto& [regex, colorString]: cache_ | std::views::values) {
+        if (std::regex_match(text, regex)) {
+            return colorString;
+        }
+    }
+    return "black";
+}
+
+void RegexColorMapper::reset() noexcept {
+    cache_.clear();
+}
