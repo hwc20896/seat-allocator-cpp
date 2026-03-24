@@ -46,6 +46,9 @@ class GridShuffler final {
          */
         bool setGrid(const Grid& grid);
 
+        [[nodiscard]]
+        const Grid& getOriginalGrid() const;
+
         /**
          * @brief Returns the most recently generated shuffled grid.
          * @return Reference to the last shuffled grid, or the original grid if no shuffles exist.

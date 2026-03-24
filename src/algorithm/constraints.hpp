@@ -153,8 +153,8 @@ class ShuffleConfigBuilder {
 
         [[nodiscard]]
         constexpr
-        ShuffleConfig build() const {
-            return config;
+        ShuffleConfig build(this auto&& self) {
+            return self.config;
         }
     private:
         ShuffleConfig config;

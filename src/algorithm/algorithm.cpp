@@ -55,6 +55,10 @@ bool GridShuffler::setGrid(const Grid& grid) {
     return true;
 }
 
+const Grid& GridShuffler::getOriginalGrid() const {
+    return originalGrid;
+}
+
 const Grid& GridShuffler::getGrid() const {
     return data.empty()? originalGrid : data.back();
 }
