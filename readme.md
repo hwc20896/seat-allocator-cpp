@@ -2,7 +2,6 @@
 
 A powerful C++ desktop application for intelligent seat arrangement and shuffling with constraint-based allocation.
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![C++](https://img.shields.io/badge/C%2B%2B-23-blue)
 ![Qt](https://img.shields.io/badge/Qt-6.x-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
