@@ -94,14 +94,53 @@ Create a JSON file to define custom constraints:
   ]
 }
 ```
+
+#### Shuffle Settings
+
+- **`allow_fixed_points`**: Allow people to stay in their original positions (default: `false`)
+- **`allow_original_neighbors`**: Allow original neighbors to remain adjacent (default: `false`)
+- **`diagonals_are_neighbors`**: Consider diagonal cells as neighbors (default: `false`)
+- **`custom_forbidden_pairs`**: Pairs of people who cannot be adjacent
+
 #### Constraint Types
 
-- **ForceRow**: Force a person to sit in a specific row
-- **ForbidRow**: Prevent a person from sitting in a specific row
-- **ForceCol**: Force a person to sit in a specific column
-- **ForbidCol**: Prevent a person from sitting in a specific column
-- **ForbidShareRow**: Two people cannot sit in the same row
-- **ForbidShareCol**: Two people cannot sit in the same column
+- **`force_row`**: Force a person to sit in a specific row
+    - `value`: Person's name
+    - `index`: Row number (0-based)
+- **`forbid_row`**: Prevent a person from sitting in a specific row
+    - `value`: Person's name
+    - `index`: Row number (0-based)
+- **`force_col`**: Force a person to sit in a specific column
+    - `value`: Person's name
+    - `index`: Column number (0-based)
+- **`forbid_col`**: Prevent a person from sitting in a specific column
+    - `value`: Person's name
+    - `index`: Column number (0-based)
+- **`forbid_share_row`**: Two people cannot sit in the same row
+    - `value1`: First person's name
+    - `value2`: Second person's name
+- **`forbid_share_col`**: Two people cannot sit in the same column
+    - `value1`: First person's name
+    - `value2`: Second person's name
+
+### Color Presets Configuration
+
+Create a JSON file to define color presets for grid cells based on regex patterns:
+
+```json
+{ 
+  "^A.": "#FF5733", 
+  "^B.": "#33FF57", 
+  ".*[0-9]$": "#3357FF"
+}
+```
+
+This example will:
+- Color all names starting with "A" in red
+- Color all names starting with "B" in green
+- Color all names ending with a number in blue
+
+**Note**: Regex patterns are case-sensitive. Use valid .NET regex syntax.
 
 ### File Format
 
@@ -192,13 +231,30 @@ Load it into the application and click "Begin Shuffle" to generate new arrangeme
 
 For wedding seating, prevent divorced couples from sitting together:
 ```json
-{
-  "allow_fixed_points": false,
-  "custom_forbidden_pairs": [
-    ["ExHusband", "ExWife"]
-  ],
-  "constraints": [
-    {"type": "ForbidShareRow", "first": "ExHusband", "second": "ExWife"}
+{ 
+  "shuffle_settings": { 
+    "allow_fixed_points": false, 
+    "allow_original_neighbors": true, 
+    "diagonals_are_neighbors": false, 
+    "custom_forbidden_pairs": [ 
+      ["Alice", "Bob"], 
+      ["Charlie", "David"] 
+    ]
+  }, 
+  "constraints": [ 
+    { 
+      "type": "force_row", 
+      "value": "Alice", 
+      "index": 1
+    }, 
+    { "type": "forbid_col", 
+      "value": "Bob", 
+      "index": 3
+    }, 
+    { "type": "forbid_share_row", 
+      "value1": "Eve", 
+      "value2": "Frank"
+    } 
   ]
 }
 ```
