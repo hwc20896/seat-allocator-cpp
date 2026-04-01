@@ -29,7 +29,7 @@ class GridShuffler final {
          * @brief Constructs a GridShuffler with optional configuration.
          * @param config Configuration options controlling shuffle behavior.
          */
-        explicit GridShuffler(detail::ShuffleConfig config = detail::ShuffleConfig());
+        explicit GridShuffler(ShuffleConfig config = ShuffleConfig());
 
         /**
          * @brief Returns the number of successfully generated shuffled grids.

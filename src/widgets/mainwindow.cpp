@@ -9,6 +9,7 @@
 #include <chrono>
 #include <format>
 #include <memory>
+#include <numbers>
 #include <regex>
 
 #include <nlohmann/json.hpp>
@@ -21,10 +22,19 @@
 using nlohmann::json;
 using namespace std::chrono_literals;
 
-MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui_(new Ui::MainWindow), shuffleAnimationSound_(std::make_unique<QSoundEffect>()){
+MainWindow::MainWindow(QWidget* parent)
+  : QMainWindow(parent),
+    ui_(new Ui::MainWindow),
+    shuffleBeginSound_(std::make_unique<QSoundEffect>()),
+    shuffleEndSound_(std::make_unique<QSoundEffect>()),
+    wheelClickSound_(std::make_unique<QSoundEffect>())
+{
     ui_->setupUi(this);
 
-    this->resize(1000, 800);
+    this->setMinimumSize(900, 550);
+    this->resize(1000, 700);
+
+    this->setWindowTitle("Seat Allocator");
 
     ui_->actionDisableColor->setEnabled(false);
 
@@ -46,8 +56,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui_(new Ui::MainW
     connect(ui_->actionEnableColor, &QAction::triggered, this, &MainWindow::onImportColorPresets);
     connect(ui_->actionDisableColor, &QAction::triggered, this, &MainWindow::onDisableColorPresets);
     connect(ui_->actionbeginShuffle, &QAction::triggered, this, &MainWindow::onBeginShuffle);
+    connect(ui_->actionpreviousGrid, &QAction::triggered, this, &MainWindow::onPreviousGridClicked);
+    connect(ui_->actionnextGrid, &QAction::triggered, this, &MainWindow::onNextGridClicked);
+    connect(ui_->toOriginal, &QPushButton::toggled, this, &MainWindow::onOriginalGridChecked);
+    connect(ui_->actionLoadConstraint, &QAction::triggered, this, &MainWindow::onLoadConstraints);
+    connect(ui_->actionUnloadConstraint, &QAction::triggered, this, &MainWindow::onUnloadConstraints);
 
-    shuffleAnimationSound_->setSource({Constants::SHUFFLE_ANIMATION_SOUND});
+    shuffleBeginSound_->setVolume(.6f);
+    shuffleBeginSound_->setSource({Constants::SHUFFLE_START_SOUND});
+    shuffleEndSound_->setVolume(.6f);
+    shuffleEndSound_->setSource({Constants::SHUFFLE_END_SOUND});
+    wheelClickSound_->setVolume(.6f);
+    wheelClickSound_->setSource({Constants::SHUFFLE_WHEEL_CLICK_SOUND});
 }
 
 MainWindow::~MainWindow(){
@@ -68,6 +88,7 @@ void MainWindow::onImportFromCSV() {
 
     try {
         shuffler_.setGrid(grid);
+        currentGrid_ = grid;
         this->refreshGrid(shuffler_.getGrid());
     }
     catch (const std::invalid_argument& e) {
@@ -76,7 +97,10 @@ void MainWindow::onImportFromCSV() {
         return;
     }
 
+    ui_->toOriginal->setEnabled(false);
+
     statusBarText_->setText(QString("已導入檔案：%1").arg(getFileBasename(fileName.toStdString())));
+    ui_->pageIndicator->setText("原始列表");
 }
 
 void MainWindow::onImportFromXLSX() {
@@ -93,6 +117,7 @@ void MainWindow::onImportFromXLSX() {
 
     try {
         shuffler_.setGrid(grid);
+        currentGrid_ = grid;
         this->refreshGrid(shuffler_.getGrid());
     }
     catch (const std::invalid_argument& e) {
@@ -101,38 +126,79 @@ void MainWindow::onImportFromXLSX() {
         return;
     }
 
+    ui_->toOriginal->setEnabled(false);
+
     statusBarText_->setText(QString("已導入檔案：%1").arg(getFileBasename(fileName.toStdString())));
+    ui_-> pageIndicator->setText("原始列表");
 }
 
 void MainWindow::onExportToCSV() {
     spdlog::debug("onExportToCSV() clicked");
+
+    if (currentGrid_.empty()) {
+        spdlog::error("Nothing to export. Perhaps you forgot to import anything?");
+        QMessageBox::critical(this, "檔案未導入", "請先導入檔案。");
+        return;
+    }
+
+    if (currentGrid_ == shuffler_.getOriginalGrid()){
+        spdlog::warn("This is the original grid. This is not recommended to export it.");
+        const auto reply = QMessageBox::warning(
+            this,
+            "確認導出",
+            "這是原始名單，確定要導出嗎？\n\n建議先執行洗牌操作後再導出。",
+            QMessageBox::Ok | QMessageBox::Cancel,
+            QMessageBox::Cancel
+        );
+
+        if (reply != QMessageBox::Ok)
+            return;
+    }
+
     const QString fileName = QFileDialog::getSaveFileName(this, "輸出座位配置", "", "CSV 檔案 (*.csv)");
     if (fileName.isEmpty()) {
         spdlog::error("Unable to get file name. It probably means that the user canceled the operation.");
         return;
     }
 
-    //  TODO: get grid from ui
+    writeCSV(fileName.toStdString(), currentGrid_);
 
-    //  TODO: export grid to csv
-
-    spdlog::info("Export to CSV done.");
+    spdlog::info("Export to CSV done. File: {}", fileName.toStdString());
     statusBarText_->setText(QString("已導出至檔案：%1").arg(getFileBasename(fileName.toStdString())));
 }
 
 void MainWindow::onExportToXLSX() {
     spdlog::debug("onExportToXLSX() clicked");
-    const QString fileName = QFileDialog::getSaveFileName(this, "輸出座位配置", "", "CSV 檔案 (*.csv)");
+
+    if (currentGrid_.empty()) {
+        spdlog::error("Nothing to export. Perhaps you forgot to import anything?");
+        QMessageBox::critical(this, "檔案未導入", "請先導入檔案。");
+        return;
+    }
+
+    if (currentGrid_ == shuffler_.getOriginalGrid()){
+        spdlog::warn("This is the original grid. This is not recommended to export it.");
+        const auto reply = QMessageBox::warning(
+            this,
+            "確認導出",
+            "這是原始名單，確定要導出嗎？\n\n建議先執行洗牌操作後再導出。",
+            QMessageBox::Ok | QMessageBox::Cancel,
+            QMessageBox::Cancel
+        );
+
+        if (reply != QMessageBox::Ok)
+            return;
+    }
+
+    const QString fileName = QFileDialog::getSaveFileName(this, "輸出座位配置", "", "Excel 檔案 (*.xlsx)");
     if (fileName.isEmpty()) {
         spdlog::error("Unable to get file name. It probably means that the user canceled the operation.");
         return;
     }
 
-    //  TODO: get grid from ui
+    writeXLSX(fileName.toStdString(), currentGrid_);
 
-    //  TODO: export grid to xlsx
-
-    spdlog::info("Export to CSV done.");
+    spdlog::info("Export to EXCEL done. File: {}", fileName.toStdString());
     statusBarText_->setText(QString("已導出至檔案：%1").arg(getFileBasename(fileName.toStdString())));
 }
 
@@ -177,7 +243,7 @@ void MainWindow::onDisableColorPresets() {
     ui_->actionDisableColor->setEnabled(false);
 }
 
-void MainWindow::refreshGrid(const Grid& grid) {
+void MainWindow::refreshGrid(const Grid& grid, const bool isOriginal) const {
     if (grid.empty()) {
         spdlog::error("Grid is empty.");
         return;
@@ -199,6 +265,10 @@ void MainWindow::refreshGrid(const Grid& grid) {
             const auto color = colorMapper_.getColor(text);
             item->setForeground(QColor(color.c_str()));
 
+            if (isOriginal) {
+                item->setBackground(QColor(207, 248, 248));
+            }
+
             ui_->gridDisplayer->setItem(row, col, item.release());
         }
     }
@@ -215,6 +285,7 @@ void MainWindow::onBeginShuffle() {
     spdlog::debug("Before reset: shuffleAnimationIteration_ = {}", shuffleAnimationIteration_);
 
     ui_->beginShuffle->setEnabled(false);
+    ui_->actionbeginShuffle->setEnabled(false);
 
     shuffleAnimationIteration_ = 0;
 
@@ -222,32 +293,48 @@ void MainWindow::onBeginShuffle() {
 
     shuffleAnimationGrid_ = shuffler_.getOriginalGrid();
 
-    constexpr auto shuffleCount = 25;
-    constexpr auto cooldownMS = 80ms;
+    constexpr auto shuffleCount = 40;
+    constexpr auto minDelay = 50ms;   // Fastest (middle)
+    constexpr auto maxDelay = 300ms;  // Slowest (start/end)
 
     auto* timer = new QTimer(this);
 
-    connect(timer, &QTimer::timeout, this, [this, timer, shuffleCount]() {
+    connect(timer, &QTimer::timeout, this, [this, timer, minDelay, maxDelay] {
         try {
-            spdlog::debug("=== Timer tick: iteration={}, limit={} ===", shuffleAnimationIteration_, shuffleCount);
-
             if (shuffleAnimationIteration_ < shuffleCount) {
                 shuffleGrid(shuffleAnimationGrid_);
                 this->refreshGrid(shuffleAnimationGrid_);
+                wheelClickSound_->play();
                 ++shuffleAnimationIteration_;
+
+                double progress = static_cast<double>(shuffleAnimationIteration_) / shuffleCount;
+                const auto nextDelay = getDelayForProgress(progress, minDelay, maxDelay);
+
+                // Restart timer with new delay
+                timer->stop();
+                timer->setInterval(nextDelay);
+                timer->start();
+
                 spdlog::debug("Completed iteration no. {}", shuffleAnimationIteration_);
             } else {
                 spdlog::debug("Reached shuffle limit, finalizing...");
 
                 shuffler_.shuffle();
                 const auto& finalGrid = shuffler_.getGrid();
+                currentGrid_ = finalGrid;
                 this->refreshGrid(finalGrid);
-                shuffleAnimationSound_->play();
+                shuffleEndSound_->play();
 
                 timer->stop();
                 timer->deleteLater();
                 ui_->beginShuffle->setEnabled(true);
+                ui_->actionbeginShuffle->setEnabled(true);
                 spdlog::info("Shuffle completed: generated and displayed new shuffled grid.");
+
+                currentIndex_ = static_cast<int>(shuffler_.getSize());
+                this->refreshPageIndicator();
+
+                ui_->toOriginal->setEnabled(true);
             }
         }
         catch (const std::exception& e) {
@@ -257,9 +344,97 @@ void MainWindow::onBeginShuffle() {
             timer->stop();
             timer->deleteLater();
             ui_->beginShuffle->setEnabled(true);
+            ui_->actionbeginShuffle->setEnabled(true);
         }
     });
 
-    spdlog::debug("Timer started with interval {}ms", cooldownMS.count());
-    timer->start(cooldownMS);
+    shuffleBeginSound_->play();
+    timer->start(maxDelay);
+}
+
+void MainWindow::onPreviousGridClicked() {
+    spdlog::debug("onPreviousGridClicked() clicked");
+
+    if (currentIndex_ == 1) return;
+
+    --currentIndex_;
+    this->refreshGrid(shuffler_.getGrid(currentIndex_-1));
+    this->refreshPageIndicator();
+}
+
+void MainWindow::onNextGridClicked() {
+    spdlog::debug("onNextGridClicked() clicked");
+
+    if (currentIndex_ == static_cast<int>(shuffler_.getSize())) return;
+
+    ++currentIndex_;
+    this->refreshGrid(shuffler_.getGrid(currentIndex_-1));
+    this->refreshPageIndicator();
+}
+
+
+void MainWindow::refreshPageIndicator() const {
+    ui_->pageIndicator->setText(QString("第 %1 次打亂").arg(currentIndex_));
+
+    const auto totalPageCount = static_cast<int>(shuffler_.getSize());
+    ui_->previousGrid->setEnabled(currentIndex_ != 1);
+    ui_->actionpreviousGrid->setEnabled(currentIndex_ != 1);
+    ui_->nextGrid->setEnabled(currentIndex_ != totalPageCount);
+    ui_->actionnextGrid->setEnabled(currentIndex_ != totalPageCount);
+}
+
+void MainWindow::onOriginalGridChecked(const bool checked) {
+    spdlog::debug("onOriginalGridChecked() toggled with state = {}", checked);
+
+    const auto& targetGrid = checked ? shuffler_.getOriginalGrid() : shuffler_.getGrid();
+    this->refreshGrid(targetGrid, checked);
+
+    ui_->pageIndicator->setText(checked ? "原始列表" : QString("第 %1 次打亂").arg(currentIndex_));
+}
+
+MainWindow::time_type MainWindow::getDelayForProgress(const double progress, const time_type minDelay, const time_type maxDelay) {
+    const auto normalized = std::sin(progress * std::numbers::pi);
+    const auto delay = maxDelay - normalized * (maxDelay - minDelay);
+    spdlog::debug("Progress: {}, Delay: {:.3f}", progress, delay.count());
+    return std::chrono::duration_cast<time_type>(delay);
+}
+
+void MainWindow::onLoadConstraints() {
+    spdlog::debug("onLoadConstraints() clicked");
+
+    const auto filePath = QFileDialog::getOpenFileName(this, "載入座位", "", "JSON 檔案 (*.json)");
+    if (filePath.isEmpty()) {
+        spdlog::error("Unable to get file name. It probably means that the file doesn't exist or the user canceled the operation.");
+        return;
+    }
+
+    const auto json = getFileContent(filePath.toStdString());
+
+    if (json.empty()) {
+        spdlog::error("File is empty.");
+        return;
+    }
+
+    const auto config = ShuffleConfig::from_json(json::parse(json));
+
+    spdlog::debug("Got constraints: ");
+    spdlog::debug("- allow_fixed_points = {}", config.allow_fixed_points);
+    spdlog::debug("- allow_original_neighbors = {}", config.allow_original_neighbors);
+    spdlog::debug("- diagonals_are_neighbors = {}", config.diagonals_are_neighbors);
+    spdlog::debug("- constraints.size() = {}", config.constraints.size());
+    spdlog::debug("That's all that I can do rn.");
+
+    this->config_ = config;
+
+    this->statusBarText_->setText(QString("算法約束載入完成：%1。").arg(filePath));
+    ui_->actionUnloadConstraint->setEnabled(true);
+}
+
+void MainWindow::onUnloadConstraints() {
+    spdlog::debug("onUnloadConstraints() clicked");
+
+    this->config_ = ShuffleConfig{};
+
+    this->statusBarText_->setText("已解除所有約束。");
+    ui_->actionUnloadConstraint->setEnabled(false);
 }

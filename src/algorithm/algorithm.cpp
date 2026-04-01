@@ -6,8 +6,9 @@
 #include <format>
 #include <ranges>
 #include <algorithm>
+#include <spdlog/spdlog.h>
 
-GridShuffler::GridShuffler(detail::ShuffleConfig config)
+GridShuffler::GridShuffler(ShuffleConfig config)
   : rowCount(0), columnCount(0), config(std::move(config)), numItems(0), dim(0)
 {
     dirs = std::vector<Position>{{0, 1}, {1, 0}, {0, -1}, {-1, 0}};
@@ -47,7 +48,7 @@ bool GridShuffler::setGrid(const Grid& grid) {
         initConstraints();
     }
     catch (std::exception& e) {
-        std::println("Error: {}", e.what());
+        spdlog::critical("Error: {}", e.what());
         throw;
     }
 
@@ -68,7 +69,7 @@ void GridShuffler::shuffle() {
 
     if (dim < numItems) {
         const auto msg = std::format("Unable to shuffle: ({}) is less than quantity of non-null element count ({})", dim, numItems);
-        std::println("{}", msg);
+        spdlog::critical(msg);
         throw std::invalid_argument(msg);
     }
 
@@ -96,7 +97,7 @@ void GridShuffler::shuffle() {
     }
 
     static const auto msg = std::format("Shuffle failed within attempt ({}); This might probably mean that the shuffler cannot find a solution.", MAX_ATTEMPTS);
-    std::println("{}", msg);
+    spdlog::critical(msg);
     throw std::runtime_error(msg);
 }
 
@@ -215,7 +216,7 @@ void GridShuffler::initConstraints() {
 
     if (!duplicateElements.empty()) {
         const auto msg = std::format("Duplicate elements found: {}.\nPlease ensure all element are unique.", duplicateElements);
-        std::println("{}",msg);
+        spdlog::critical(msg);
         throw std::invalid_argument(msg);
     }
 
@@ -223,7 +224,7 @@ void GridShuffler::initConstraints() {
 
     if (dim < numItems) {
         const auto msg = std::format("Unable to shuffle: ({}) is less than quantity of non-null element count ({})", dim, numItems);
-        std::println("{}",msg);
+        spdlog::critical(msg);
         throw std::invalid_argument(msg);
     }
 

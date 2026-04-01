@@ -15,7 +15,7 @@ Grid readCSV(const std::string& filePath) {
     std::ifstream file(filePath);
 
     if (!file.is_open()) {
-        std::println("Error: Cannot open file {}", filePath);
+        spdlog::error("Cannot open file {}", filePath);
         return grid;
     }
 
@@ -73,6 +73,7 @@ void writeCSV(const std::string& filePath, const Grid& grid) {
             if (i != row.size() - 1)
                 file << ',';
         }
+        file << '\n';
     }
 }
 
@@ -88,8 +89,9 @@ Grid readXLSX(const std::string& filePath) {
     for (auto r = 1; r <= rows; ++r) {
         Row rowVec;
         for (auto c = 1; c <= cols; ++c) {
-            auto cell = wks.cell(r, c);
-            if (cell.value().type() == OpenXLSX::XLValueType::Empty) {
+            if (auto cell = wks.cell(r, c);
+                cell.value().type() == OpenXLSX::XLValueType::Empty
+            ) {
                 rowVec.emplace_back("");
             } else {
                 rowVec.push_back(cell.value().get<std::string>());

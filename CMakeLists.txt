@@ -17,6 +17,8 @@ qt_add_executable(seat_allocator_v3
 
     src/algorithm/algorithm.cpp
 
+    src/algorithm/constraints.cpp
+
     src/widgets/mainwindow.cpp
 
     src/ui/mainwindow.ui

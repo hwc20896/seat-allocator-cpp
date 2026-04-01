@@ -1,5 +1,7 @@
 <RCC>
     <qresource prefix="/effects">
         <file>sounds/snd_pling.wav</file>
+        <file>sounds/snd_shuffle_start.wav</file>
+        <file>sounds/snd_wheel_click.wav</file>
     </qresource>
 </RCC>
