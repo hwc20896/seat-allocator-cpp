@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>798</width>
+    <width>844</width>
     <height>539</height>
    </rect>
   </property>
@@ -15,6 +15,21 @@
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="verticalLayout">
+    <property name="spacing">
+     <number>10</number>
+    </property>
+    <property name="leftMargin">
+     <number>15</number>
+    </property>
+    <property name="topMargin">
+     <number>15</number>
+    </property>
+    <property name="rightMargin">
+     <number>15</number>
+    </property>
+    <property name="bottomMargin">
+     <number>15</number>
+    </property>
     <item>
      <layout class="QHBoxLayout" name="topRowLayout">
       <item>
@@ -153,6 +168,9 @@
         <verstretch>1</verstretch>
        </sizepolicy>
       </property>
+      <property name="editTriggers">
+       <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
+      </property>
       <attribute name="horizontalHeaderVisible">
        <bool>false</bool>
       </attribute>
@@ -226,7 +244,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>798</width>
+     <width>844</width>
      <height>33</height>
     </rect>
    </property>
