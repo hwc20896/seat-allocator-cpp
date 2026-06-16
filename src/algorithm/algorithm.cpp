@@ -2,18 +2,24 @@
 
 #include <random>
 #include <utility>
-#include <print>
+#include <chrono>
 #include <format>
 #include <ranges>
 #include <algorithm>
+#include <limits>
+#include <array>
 #include <spdlog/spdlog.h>
+#include <future>
+
+#include "utils/constants.hpp"
 
 GridShuffler::GridShuffler(ShuffleConfig config)
-  : rowCount(0), columnCount(0), config(std::move(config)), numItems(0), dim(0)
+  : rowCount(0), columnCount(0), config(std::move(config)), forbiddenAdjMatrix(0), numItems(0), dim(0)
 {
-    dirs = std::vector<Position>{{0, 1}, {1, 0}, {0, -1}, {-1, 0}};
+    dirs = {{0, 1}, {1, 0}, {0, -1}, {-1, 0}};
+    static constexpr auto diagonalDirs = std::array<Position, 4>({{-1, 1}, {1, 1}, {-1, -1}, {1, -1}});
     if (config.diagonals_are_neighbors)
-        dirs.append_range(std::vector<Position>({{-1, 1}, {1, 1}, {-1, -1}, {1, -1}}));
+        dirs.append_range(diagonalDirs);
 }
 
 size_t GridShuffler::getSize() const noexcept {
@@ -31,7 +37,7 @@ bool GridShuffler::setGrid(const Grid& grid) {
     idToString.clear();
     stringToID.clear();
     graph.clear();
-    forbiddenAdjMatrix.clear();
+    forbiddenAdjMatrix.reset();
     originalValueAtNode.clear();
     nodesByRow.clear();
     nodesByColumn.clear();
@@ -73,30 +79,84 @@ void GridShuffler::shuffle() {
         throw std::invalid_argument(msg);
     }
 
-    auto assignment = std::vector<std::optional<int>>(numItems, std::nullopt);
-    auto usedValues = std::vector(dim, false);
-    static constexpr int MAX_ATTEMPTS = 1000;
+    using namespace std::chrono;
 
-    for ([[maybe_unused]] const auto _ : std::views::iota(0, MAX_ATTEMPTS)) {
-        if (solve(assignment, usedValues)) {
-            auto newGrid = std::vector(rowCount, std::vector(columnCount, std::string()));
-            for (const auto& [nodeIdx, value] : assignment | std::views::enumerate) {
-                value.and_then([this, &newGrid, nodeIdx](const int valID) -> std::optional<int> {
-                    const auto& [row, column] = nodeToPos.at(nodeIdx);
-                    newGrid[row][column] = idToString.at(valID);
-                    return {};
-                });
+    const auto startTime = high_resolution_clock::now();
+
+    std::atomic found{false};
+    std::mutex resultMutex;
+    Grid resultGrid;
+    std::exception_ptr exceptionPtr;
+
+    std::vector<std::future<void>> futures;
+
+    for ([[maybe_unused]] const auto t : std::views::iota(0, Constants::NUM_THREADS)) {
+        futures.push_back(std::async(std::launch::async, [&] {
+            try {
+                auto assignment = std::vector<std::optional<int>>(numItems, std::nullopt);
+                auto usedValues = std::vector(dim, false);
+                auto threadLocalDomainMask = domainMask;
+
+                for ([[maybe_unused]] const auto _ : std::views::iota(0, Constants::ATTEMPTS_PER_THREAD)) {
+                    if (found.load(std::memory_order_relaxed)) return;
+
+                    if (solve(assignment, usedValues, threadLocalDomainMask)) {
+                        if (!found.exchange(true)) {
+                            auto newGrid = std::vector(rowCount, std::vector(columnCount, std::string()));
+                            for (const auto& [nodeIdx, value] : assignment | std::views::enumerate) {
+                                value.and_then([this, &newGrid, nodeIdx](const int valID) -> std::optional<int> {
+                                    const auto& [row, column] = nodeToPos.at(nodeIdx);
+                                    newGrid[row][column] = idToString.at(valID);
+                                    return {};
+                                });
+                            }
+
+                            std::lock_guard lock(resultMutex);
+                            resultGrid = std::move(newGrid);
+                        }
+                        return;
+                    }
+
+                    std::ranges::fill(assignment, std::nullopt);
+                    std::ranges::fill(usedValues, false);
+                    threadLocalDomainMask = domainMask;
+                }
             }
-
-            data.push_back(newGrid);
-            return;
-        }
-
-        std::ranges::fill(assignment, std::nullopt);
-        std::ranges::fill(usedValues, false);
+            catch (...) {
+                std::lock_guard lock(resultMutex);
+                if (!exceptionPtr) {
+                    exceptionPtr = std::current_exception();
+                }
+            }
+        }));
     }
 
-    static const auto msg = std::format("Shuffle failed within attempt ({}); This might probably mean that the shuffler cannot find a solution.", MAX_ATTEMPTS);
+    for (auto& f : futures) {
+        f.get();
+    }
+
+    if (found.load()) {
+        const auto endTime = high_resolution_clock::now();
+        const auto duration = duration_cast<microseconds>(endTime - startTime);
+
+        spdlog::info("[OK] Shuffle successful (took {:.3f}ms).", duration.count()/1000.0);
+
+        data.push_back(std::move(resultGrid));
+        return;
+    }
+
+    if (exceptionPtr) {
+        std::rethrow_exception(exceptionPtr);
+    }
+
+    const auto endTime = high_resolution_clock::now();
+    const auto duration = duration_cast<milliseconds>(endTime - startTime);
+
+    static const auto msg = std::format(
+        "[FAIL] Shuffle failed after {} attempts (took {} ms). Constraints may be unsatisfiable.",
+        Constants::MAX_ATTEMPTS,
+        duration.count()
+    );
     spdlog::critical(msg);
     throw std::runtime_error(msg);
 }
@@ -234,7 +294,7 @@ void GridShuffler::initConstraints() {
     }
 
     const int pow_dim = dim * dim;
-    forbiddenAdjMatrix = std::vector(pow_dim, false);
+    forbiddenAdjMatrix = DynamicBitset(pow_dim);
 
     if (!config.allow_original_neighbors) {
         for (const auto i : std::views::iota(0, numItems)) {
@@ -243,9 +303,9 @@ void GridShuffler::initConstraints() {
                 const int v = originalValueAtNode[j];
                 const auto [idx1, idx2] = std::make_pair(u * dim + v, v * dim + u);
                 if (idx1 < pow_dim)
-                    forbiddenAdjMatrix[idx1] = true;
+                    forbiddenAdjMatrix.set(idx1, true);
                 if (idx2 < pow_dim)
-                    forbiddenAdjMatrix[idx2] = true;
+                    forbiddenAdjMatrix.set(idx2, true);
             }
         }
     }
@@ -254,172 +314,195 @@ void GridShuffler::initConstraints() {
         const auto [u, v] = std::make_pair(stringToID.at(s1), stringToID.at(s2));
         const auto [idx1, idx2] = std::make_pair(u * dim + v, v * dim + u);
         if (idx1 < pow_dim)
-            forbiddenAdjMatrix[idx1] = true;
+            forbiddenAdjMatrix.set(idx1, true);
         if (idx2 < pow_dim)
-            forbiddenAdjMatrix[idx2] = true;
+            forbiddenAdjMatrix.set(idx2, true);
     }
 }
 
 void GridShuffler::initDomains() {
+    // 1. 初始化靜態領域遮罩
     domainMask = std::vector(numItems, std::vector(dim, true));
+    preparedDynamicConstraints.clear(); // 清空舊的預處理資料
 
     for (const auto& constraint : config.constraints) {
         std::visit([&]<typename ConstraintType>(const ConstraintType& c){
-            constexpr auto isForce = std::is_same_v<ConstraintType, ForceCol> || std::is_same_v<ConstraintType, ForceRow>;
-            constexpr auto isForbid = std::is_same_v<ConstraintType, ForbidCol> || std::is_same_v<ConstraintType, ForbidRow>;
+            constexpr bool isForce = std::is_same_v<ConstraintType, ForceCol> || std::is_same_v<ConstraintType, ForceRow>;
+            constexpr bool isForbid = std::is_same_v<ConstraintType, ForbidCol> || std::is_same_v<ConstraintType, ForbidRow>;
+            constexpr bool constraintCol = std::is_same_v<ConstraintType, ForceCol> || std::is_same_v<ConstraintType, ForbidCol>;
+            constexpr bool constraintRow = std::is_same_v<ConstraintType, ForceRow> || std::is_same_v<ConstraintType, ForbidRow>;
+            constexpr bool isDynamic = std::is_same_v<ConstraintType, ForbidShareCol> || std::is_same_v<ConstraintType, ForbidShareRow>;
 
-            constexpr auto constraintCol = std::is_same_v<ConstraintType, ForceCol> || std::is_same_v<ConstraintType, ForbidCol>;
-            constexpr auto constraintRow = std::is_same_v<ConstraintType, ForceRow> || std::is_same_v<ConstraintType, ForbidRow>;
+            if constexpr (constraintCol || constraintRow) {
+                const int limitIdx = c.second;
+                const int maxLimit = constraintCol ? columnCount : rowCount;
 
-            if constexpr (constraintCol) {
-                if (c.second < 0 || c.second >= columnCount) {
-                    throw std::invalid_argument(std::format("Constraint Error: Column {} does not exist", c.second));
+                if (limitIdx < 0 || limitIdx >= maxLimit) {
+                    throw std::invalid_argument(std::format("Constraint Error: Index {} does not exist", limitIdx));
                 }
+
                 if (stringToID.contains(c.first)) {
                     const ValueID val_id = stringToID.at(c.first);
+
                     if constexpr (isForce) {
+                        // 強制該值只能出現在特定行/列，則遮蔽其他所有位置
                         for (const auto u : std::views::iota(0, numItems)) {
-                            const auto [_, nc] = nodeToPos[u];
-                            if (nc != c.second) {
+                            const auto [nr, nc] = nodeToPos[u];
+                            if (const int currentIdx = constraintCol ? nc : nr;
+                                currentIdx != limitIdx
+                            ) {
                                 domainMask[u][val_id] = false;
                             }
                         }
                     }
                     else if constexpr (isForbid) {
-                        for (const auto u : nodesByColumn[c.second]) {
+                        // 禁止該值出現在特定行/列
+                        const auto& nodesToRestrict = constraintCol ? nodesByColumn[limitIdx] : nodesByRow[limitIdx];
+                        for (const auto u : nodesToRestrict) {
                             domainMask[u][val_id] = false;
                         }
                     }
                 }
             }
-            else if constexpr (constraintRow) {
-                if (c.second < 0 || c.second >= rowCount) {
-                    throw std::invalid_argument(std::format("Constraint Error: Row {} does not exist", c.second));
-                }
-                if (stringToID.contains(c.first)) {
-                    const ValueID val_id = stringToID.at(c.first);
-                    if constexpr (isForce) {
-                        for (const auto u : std::views::iota(0, numItems)) {
-                            const auto nr = nodeToPos[u].first;
-                            if (nr != c.second) {
-                                domainMask[u][val_id] = false;
-                            }
-                        }
-                    }
-                    else if constexpr (isForbid) {
-                        for (const auto u : nodesByRow[c.second]) {
-                            domainMask[u][val_id] = false;
-                        }
-                    }
+            // 2. 處理並預存動態約束 (Share 類型)
+            else if constexpr (isDynamic) {
+                if (stringToID.contains(c.first) && stringToID.contains(c.second)) {
+                    preparedDynamicConstraints.emplace_back(
+                        std::is_same_v<ConstraintType, ForbidShareRow> ?
+                            DynamicConstraint::Type::ShareRow :
+                            DynamicConstraint::Type::ShareCol,
+                        stringToID.at(c.first),
+                        stringToID.at(c.second)
+                    );
                 }
             }
         }, constraint);
     }
 }
 
-bool GridShuffler::checkDynamicConstraints(const NodeID u, const ValueID val, const AssignmentType& assignment) const {
+bool GridShuffler::checkDynamicConstraints(const NodeID u, const ValueID v, const AssignmentType& assignment) const {
     const auto [r, c] = nodeToPos[u];
 
-    // Helper lambda to process ForbidShareCol constraints
-    const auto process_forbid_share = [&](const Graph& targetGraph, const ForbidShareCol& constraint) -> bool {
-        if (stringToID.contains(constraint.first) && stringToID.contains(constraint.second)) {
-            const ValueID id1 = stringToID.at(constraint.first);
-            const ValueID id2 = stringToID.at(constraint.second);
+    for (const auto& [type, id1, id2] : preparedDynamicConstraints) {
+        ValueID targetPartner;
+        if (v == id1) targetPartner = id2;
+        else if (v == id2) targetPartner = id1;
+        else continue;
 
-            ValueID target_partner;
-            if (val == id1) {
-                target_partner = id2;
-            } else if (val == id2) {
-                target_partner = id1;
-            } else {
-                return true;  // Neither matches, constraint doesn't apply
-            }
+        const auto& nodesToCheck = (type == DynamicConstraint::Type::ShareRow) ?
+                                    nodesByRow[r] : nodesByColumn[c];
 
-            // Check if any other node in the same column has the target partner
-            for (const NodeID neighbor_node : targetGraph[c]) {
-                if (neighbor_node == u)
-                    continue;
-
-                if (assignment[neighbor_node] == target_partner)
-                    return false;
+        for (const NodeID neighbor_node : nodesToCheck) {
+            if (neighbor_node != u && assignment[neighbor_node] == targetPartner) {
+                return false;
             }
         }
-        return true;  // Constraint satisfied
-    };
+    }
 
-    // Process each constraint
-    return std::ranges::all_of(config.constraints, [&]<typename Constraint>(const Constraint& constraint) -> bool{
-        using ConstraintType = std::remove_cvref_t<Constraint>;
-
-        if constexpr (std::is_same_v<ConstraintType, ForbidShareCol>)
-            return process_forbid_share(nodesByColumn, constraint);
-        else if constexpr (std::is_same_v<ConstraintType, ForbidShareRow>)
-            return process_forbid_share(nodesByRow, constraint);
-        return true;
-    });
+    return true;
 }
 
 bool GridShuffler::isForbidden(const int u, const int v) const {
     const int idx = u * dim + v;
-    return idx < forbiddenAdjMatrix.size()? forbiddenAdjMatrix[idx] : false;
+    return idx < forbiddenAdjMatrix.size()? forbiddenAdjMatrix.test(idx) : false;
 }
 
-bool GridShuffler::solve(std::vector<std::optional<ValueID>>& assignment, std::vector<bool>& visited) {
-    std::optional<int> targetNode = std::nullopt;
-    int64_t maxNeighborsSet = -1;
-    bool complete = true;
+bool GridShuffler::forwardCheck(const NodeID assignedNode, ValueID assignedValue, const AssignmentType& assignment, const std::vector<bool>& visited, GridOf<bool>& localDomainMask) {
+    std::vector<std::pair<NodeID, ValueID>> removedValues;
 
-    for (const auto& i : std::views::iota(0, numItems)) {
-        if (assignment[i].has_value())
-            continue;
+    for (const auto neighbor : graph[assignedNode]) {
+        if (assignment[neighbor].has_value()) continue;
 
-        complete = false;
+        if (localDomainMask[neighbor][assignedValue]) {
+            localDomainMask[neighbor][assignedValue] = false;
+            removedValues.emplace_back(neighbor, assignedValue);
 
-        const auto assignedNeighbors = std::ranges::count_if(graph[i], [&](const int neighbor) {
-            return assignment[neighbor].has_value();
-        });
+            bool hasAnyCandidate = false;
+            for (const auto v : std::views::iota(0, dim)) {
+                if (!visited[v] && localDomainMask[neighbor][v]) {
+                    hasAnyCandidate = true;
+                    break;
+                }
+            }
+            if (!hasAnyCandidate) {
+                for (const auto& [node, val] : removedValues) {
+                    localDomainMask[node][val] = true;
+                }
+                return false;
+            }
+        }
+    }
+    return true;
+}
 
-        if (assignedNeighbors > maxNeighborsSet) {
-            maxNeighborsSet = assignedNeighbors;
-            targetNode = i;
+bool GridShuffler::solve(std::vector<std::optional<ValueID>>& assignment, std::vector<bool>& visited, GridOf<bool>& localDomainMask) {
+    int u = -1;
+    int minDomainSize = std::numeric_limits<int>::max();
+    int maxDegree = -1;
+
+    for (const auto i : std::views::iota(0, numItems)) {
+        if (assignment[i].has_value()) continue;
+
+        int domainCount = 0;
+        for (const auto v : std::views::iota(0, dim)) {
+            if (!visited[v] && localDomainMask[i][v]) {
+                domainCount++;
+            }
+        }
+
+        if (domainCount < minDomainSize ||
+            (domainCount == minDomainSize && graph[i].size() > maxDegree)) {
+            minDomainSize = domainCount;
+            maxDegree = graph[i].size();
+            u = i;
         }
     }
 
-    if (complete)
-        return true;
+    if (u == -1) return true;
 
-    const int u = targetNode.value();
-    auto candidates = std::vector<int>();
-    candidates.reserve(dim);
+    thread_local std::vector<int> candidates;
+    candidates.clear();
 
-    for (const auto& v : std::views::iota(0, dim)) {
-        if (visited[v]) continue;
-        if (!domainMask[u][v]) continue;
+    for (const auto v : std::views::iota(0, dim)) {
+        if (visited[v] || !localDomainMask[u][v]) continue;
+
         if (!config.allow_fixed_points && originalValueAtNode[u] == v) continue;
+
         if (!checkDynamicConstraints(u, v, assignment)) continue;
 
-        const bool no_conflict = std::ranges::none_of(graph[u], [&](const int neighbor) {
-            const auto neighborValue = assignment[neighbor];
-            return neighborValue.has_value() && isForbidden(v, *neighborValue);
-        });
-
-        if (no_conflict) {
+        if (std::ranges::none_of(graph[u], [&](const auto neighbor) {
+            const auto neighbor_assignment = assignment[neighbor];
+            return neighbor_assignment.has_value() && isForbidden(v, *neighbor_assignment);
+        })) {
             candidates.push_back(v);
         }
     }
 
-    thread_local std::mt19937 mt(std::random_device{}());
+    if (candidates.empty()) return false;
 
+    thread_local std::mt19937 mt(std::random_device{}());
     std::ranges::shuffle(candidates, mt);
 
     for (const auto val : candidates) {
         assignment[u] = val;
         visited[val] = true;
-        if (solve(assignment, visited))
-            return true;
+
+        if (!forwardCheck(u, val, assignment, visited, localDomainMask)) {
+            assignment[u] = std::nullopt;
+            visited[val] = false;
+            continue;
+        }
+
+        if (solve(assignment, visited, localDomainMask)) return true;
 
         assignment[u] = std::nullopt;
         visited[val] = false;
+
+        for (const auto neighbor : graph[u]) {
+            if (!assignment[neighbor].has_value()) {
+                localDomainMask[neighbor][val] = true;
+            }
+        }
     }
 
     return false;

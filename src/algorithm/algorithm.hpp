@@ -163,7 +163,10 @@ class GridShuffler final {
          * Uses MRV heuristic (Most Constrained Variable) to select next node.
          * @param assignment Current assignment state to complete.
          * @param visited Tracks which values have been used.
+         * @param localDomainMask IDK bro. I also want to know what this does.
          * @return true if a complete valid assignment was found, false otherwise.
          */
-        bool solve(AssignmentType& assignment, std::vector<bool>& visited);
+        bool solve(AssignmentType& assignment, std::vector<bool>& visited, GridOf<bool>& localDomainMask);
+
+        bool forwardCheck(NodeID assignedNode, ValueID assignedValue, const AssignmentType& assignment, const std::vector<bool>& visited, GridOf<bool>& localDomainMask);
 };
