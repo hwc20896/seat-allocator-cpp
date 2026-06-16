@@ -12,23 +12,24 @@ struct std::formatter<Grid> {
     constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
 
     auto format(const std::vector<std::vector<std::string>>& v, format_context& ctx) const {
-        const auto out = std::format_to(ctx.out(), "[");
+        auto out = ctx.out();
+        out = std::format_to(ctx.out(), "[");
 
         for (size_t i = 0; i < v.size(); ++i) {
             if (i > 0) {
-                std::format_to(ctx.out(), ",");
+                out = std::format_to(out, ",");
             }
 
-            std::format_to(ctx.out(), "\n    [");
+            out = std::format_to(out, "\n    [");
             for (size_t j = 0; j < v[i].size(); ++j) {
-                std::format_to(ctx.out(), "\"{}\"{}", v[i][j], (j == v[i].size() - 1 ? "" : ", "));
+                out = std::format_to(out, "\"{}\"{}", v[i][j], (j == v[i].size() - 1 ? "" : ", "));
             }
-            std::format_to(ctx.out(), "]");
+            out = std::format_to(out, "]");
         }
 
         if (!v.empty()) {
-            std::format_to(ctx.out(), "\n");
+            out = std::format_to(out, "\n");
         }
-        return std::format_to(ctx.out(), "]");
+        return out = std::format_to(out, "]");
     }
 };

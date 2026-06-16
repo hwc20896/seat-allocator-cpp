@@ -15,6 +15,8 @@ qt_add_executable(seat_allocator_v3
 
     src/utils/utils.cpp
 
+    src/utils/dynamic_bitset.cpp
+
     src/algorithm/algorithm.cpp
 
     src/algorithm/constraints.cpp

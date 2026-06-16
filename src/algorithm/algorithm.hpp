@@ -7,12 +7,16 @@
 #include <optional>
 #include "constraints.hpp"
 #include "utils/utiltypes.hpp"
+#include "utils/dynamic_bitset.hpp"
 
 using Position = std::pair<int, int>;
 using NodeID = int;
 using ValueID = int;
 
-using Graph = std::vector<std::vector<NodeID>>;
+template <class T>
+using GridOf = std::vector<std::vector<T>>;
+
+using Graph = GridOf<NodeID>;
 
 /**
  * @brief A class that shuffles elements in a 2D grid while respecting adjacency constraints.
@@ -110,15 +114,22 @@ class GridShuffler final {
         std::unordered_map<std::string, ValueID> stringToID;
         Graph graph;
 
-        std::vector<bool> forbiddenAdjMatrix;
+        DynamicBitset forbiddenAdjMatrix;
         std::vector<ValueID> originalValueAtNode;
 
         int numItems;
         int dim;
-        std::vector<std::vector<bool>> domainMask;
+        GridOf<bool> domainMask;
 
         std::vector<Position> dirs;
         Graph nodesByRow, nodesByColumn;
+
+        struct DynamicConstraint {
+            enum class Type {ShareCol, ShareRow} type;
+            ValueID id1, id2;
+        };
+
+        std::vector<DynamicConstraint> preparedDynamicConstraints;
 
         /**
          * @brief Initializes the graph topology representing grid adjacency relationships.

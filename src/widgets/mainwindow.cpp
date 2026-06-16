@@ -49,6 +49,10 @@ MainWindow::MainWindow(QWidget* parent)
     ui_->gridDisplayer->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     ui_->gridDisplayer->verticalHeader()->setSectionResizeMode(QHeaderView::Stretch);
 
+    this->initializeSignals();
+}
+
+void MainWindow::initializeSignals() {
     connect(ui_->actionImportFromCSV, &QAction::triggered, this, &MainWindow::onImportFromCSV);
     connect(ui_->actionImportFromExcel, &QAction::triggered, this, &MainWindow::onImportFromXLSX);
     connect(ui_->actionExportToCSV, &QAction::triggered, this, &MainWindow::onExportToCSV);
@@ -61,7 +65,10 @@ MainWindow::MainWindow(QWidget* parent)
     connect(ui_->toOriginal, &QPushButton::toggled, this, &MainWindow::onOriginalGridChecked);
     connect(ui_->actionLoadConstraint, &QAction::triggered, this, &MainWindow::onLoadConstraints);
     connect(ui_->actionUnloadConstraint, &QAction::triggered, this, &MainWindow::onUnloadConstraints);
+    connect(ui_->gridDisplayer, &QTableWidget::itemDoubleClicked, this, &MainWindow::onItemDoubleClicked);
+}
 
+void MainWindow::initializeEffects() const {
     shuffleBeginSound_->setVolume(.6f);
     shuffleBeginSound_->setSource({Constants::SHUFFLE_START_SOUND});
     shuffleEndSound_->setVolume(.6f);
@@ -243,7 +250,7 @@ void MainWindow::onDisableColorPresets() {
     ui_->actionDisableColor->setEnabled(false);
 }
 
-void MainWindow::refreshGrid(const Grid& grid, const bool isOriginal) const {
+void MainWindow::refreshGrid(const Grid& grid, const bool isOriginal) {
     if (grid.empty()) {
         spdlog::error("Grid is empty.");
         return;
@@ -257,21 +264,43 @@ void MainWindow::refreshGrid(const Grid& grid, const bool isOriginal) const {
 
     for (const auto row : std::views::iota(0ULL, rowCount)) {
         for (const auto col : std::views::iota(0ULL, colCount)) {
-            const auto text = grid[row][col];
-            auto item = std::make_unique<QTableWidgetItem>(QString::fromStdString(text));
-            item->setTextAlignment(Qt::AlignCenter);
-            item->setFont(QFont("Microsoft JhengHei", 16));
-
-            const auto color = colorMapper_.getColor(text);
-            item->setForeground(QColor(color.c_str()));
-
-            if (isOriginal) {
-                item->setBackground(QColor(207, 248, 248));
-            }
-
-            ui_->gridDisplayer->setItem(row, col, item.release());
+            const auto item = this->loadElement(grid[row][col], isOriginal);
+            ui_->gridDisplayer->setItem(row, col, item);
         }
     }
+
+    if (!isOriginal && manuallyModifiedGrids_.contains(currentIndex_)) {
+        const auto& modifiedGrid = manuallyModifiedGrids_.at(currentIndex_);
+
+        for (const auto row : std::views::iota(0ULL, rowCount)) {
+            for (const auto col : std::views::iota(0ULL, colCount)) {
+                if (modifiedGrid[row][col] != grid[row][col]) {
+                    if (const auto swapItem = ui_->gridDisplayer->item(row, col)) {
+                        swapItem->setBackground(Constants::SWAPPED_BACKGROUND);
+                    }
+                }
+            }
+        }
+    }
+
+    this->resetTagState();
+}
+
+QTableWidgetItem* MainWindow::loadElement(const std::string& text, const bool isOriginal) const {
+    auto item = std::make_unique<QTableWidgetItem>(QString::fromStdString(text));
+    item->setTextAlignment(Qt::AlignCenter);
+    item->setFont(QFont("Microsoft JhengHei", 16));
+
+    const auto color = colorMapper_.getColor(text);
+    item->setForeground(QColor(color.c_str()));
+
+    if (isOriginal) {
+        item->setBackground(Constants::SHOW_ORIGINAL_BACKGROUND);
+    }
+    else {
+        item->setBackground(Constants::DEFAULT_BACKGROUND);
+    }
+    return item.release();
 }
 
 void MainWindow::onBeginShuffle() {
@@ -293,6 +322,8 @@ void MainWindow::onBeginShuffle() {
 
     shuffleAnimationGrid_ = shuffler_.getOriginalGrid();
 
+    this->resetTagState();
+
     constexpr auto shuffleCount = 40;
     constexpr auto minDelay = 50ms;   // Fastest (middle)
     constexpr auto maxDelay = 300ms;  // Slowest (start/end)
@@ -307,7 +338,7 @@ void MainWindow::onBeginShuffle() {
                 wheelClickSound_->play();
                 ++shuffleAnimationIteration_;
 
-                double progress = static_cast<double>(shuffleAnimationIteration_) / shuffleCount;
+                const double progress = static_cast<double>(shuffleAnimationIteration_) / shuffleCount;
                 const auto nextDelay = getDelayForProgress(progress, minDelay, maxDelay);
 
                 // Restart timer with new delay
@@ -352,12 +383,24 @@ void MainWindow::onBeginShuffle() {
     timer->start(maxDelay);
 }
 
+void MainWindow::observeGrid() {
+    if (manuallyModifiedGrids_.contains(currentIndex_))
+        currentGrid_ = manuallyModifiedGrids_[currentIndex_];
+    else
+        currentGrid_ = shuffler_.getGrid(currentIndex_-1);
+
+    this->resetTagState();
+}
+
 void MainWindow::onPreviousGridClicked() {
     spdlog::debug("onPreviousGridClicked() clicked");
 
     if (currentIndex_ == 1) return;
 
     --currentIndex_;
+
+    this->observeGrid();
+
     this->refreshGrid(shuffler_.getGrid(currentIndex_-1));
     this->refreshPageIndicator();
 }
@@ -368,6 +411,9 @@ void MainWindow::onNextGridClicked() {
     if (currentIndex_ == static_cast<int>(shuffler_.getSize())) return;
 
     ++currentIndex_;
+
+    this->observeGrid();
+
     this->refreshGrid(shuffler_.getGrid(currentIndex_-1));
     this->refreshPageIndicator();
 }
@@ -437,4 +483,53 @@ void MainWindow::onUnloadConstraints() {
 
     this->statusBarText_->setText("已解除所有約束。");
     ui_->actionUnloadConstraint->setEnabled(false);
+}
+
+void MainWindow::onItemDoubleClicked(QTableWidgetItem* item) {
+    spdlog::debug("Item double-clicked at row {}, col {}", item->row(), item->column());
+
+    if (!taggedItem_) {
+        taggedItem_ = item;
+        item->setBackground(Constants::TAGGED_BACKGROUND);
+        spdlog::debug("Item tagged");
+    }
+    else if (taggedItem_ == item) {
+        this->resetTagState();
+        spdlog::debug("Item untagged");
+    }
+    else {
+        const auto [text1, text2] = std::make_tuple(taggedItem_->text(), item->text());
+        const auto [color1, color2] = std::make_tuple(taggedItem_->foreground().color(), item->foreground().color());
+
+        taggedItem_->setText(text2);
+        item->setText(text1);
+
+        taggedItem_->setForeground(color2);
+        item->setForeground(color1);
+
+        taggedItem_->setBackground(Constants::SWAPPED_BACKGROUND);
+        item->setBackground(Constants::SWAPPED_BACKGROUND);
+
+        const auto [row1, col1] = std::make_tuple(taggedItem_->row(), taggedItem_->column());
+        const auto [row2, col2] = std::make_tuple(item->row(), item->column());
+
+        std::swap(currentGrid_[row1][col1], currentGrid_[row2][col2]);
+        saveManualSwap(currentIndex_);
+
+        taggedItem_ = nullptr;
+        spdlog::debug("Items swapped: ({}, {}) <-> ({}, {})", row1, col1, row2, col2);
+    }
+}
+
+void MainWindow::saveManualSwap(const int index) {
+    spdlog::debug("Saving manual swap for index {}", index);
+    manuallyModifiedGrids_[index] = currentGrid_;
+    hasManualModifications_ = true;
+}
+
+void MainWindow::resetTagState() {
+    if (!taggedItem_) return;
+
+    taggedItem_->setBackground(Constants::DEFAULT_BACKGROUND);
+    taggedItem_ = nullptr;
 }
